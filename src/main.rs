@@ -18,17 +18,23 @@ fn ctrl_channel() -> Result<Receiver<()>, ctrlc::Error> {
 fn main() -> Result<(), Error> {
     let ctrl_c_events = ctrl_channel()?;
     let ticks = tick(Duration::from_secs(1));
-    let tourbox_port_name = "/dev/ttyACM0";
+    let tourbox_default_port_name = "/dev/ttyACM0";
     let mut args = env::args();
-    let tty_path = args.nth(1).unwrap_or_else(|| String::from(tourbox_port_name));
-    let mut port = serialport::new(tty_path, 115_200)
+    let first_argument = 1;
+    let tty_path = args.nth(first_argument)
+        .unwrap_or_else(|| String::from(tourbox_default_port_name));
+    let mut port = serialport::new(tty_path, 9600)
         .timeout(Duration::from_millis(10))
         .open().expect("Failed to open port");
 
-    let mut device = uinput::default().unwrap()
-        .name("tourbox-rs").unwrap()
-        .event(uinput::event::Keyboard::All).unwrap()
-        .create().unwrap();
+    let mut device = uinput::default()
+        .expect("Cannot open default uinput device")
+        .name("tourbox-rs")
+        .expect("Cannot name uinput device")
+        .event(uinput::event::Keyboard::All)
+        .expect("")
+        .create()
+        .expect("Error creating uinput device for tour box neo");
 
     loop {
         select! {
@@ -42,6 +48,7 @@ fn main() -> Result<(), Error> {
                     device.press(&keyboard::Key::LeftControl).unwrap();
                     device.click(&keyboard::Key::C).unwrap();
                     device.release(&keyboard::Key::LeftControl).unwrap();
+                    device.synchronize().unwrap();
                     continue;
                 }
                 println!("No data!");
