@@ -8,4 +8,8 @@ edition = "2021"
 crossbeam-channel = "0.5.5"
 ctrlc = "3.2.2"
 serialport = "4.2.0"
+tokio = { version = "1.20.0", features = ["full"] }
+tokio-io-utility = "0.6.6"
+tokio-serial = "5.4.3"
+tokio-util = "0.7.3"
 uinput = "0.1.3"

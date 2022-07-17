@@ -1,9 +1,9 @@
-use std::borrow::Borrow;
 use std::env;
 use std::time::Duration;
 
 use crossbeam_channel::{bounded, Receiver, select, tick};
 use ctrlc::Error;
+use serialport::SerialPort;
 use uinput::event::keyboard;
 
 fn ctrl_channel() -> Result<Receiver<()>, ctrlc::Error> {
@@ -15,17 +15,18 @@ fn ctrl_channel() -> Result<Receiver<()>, ctrlc::Error> {
     Ok(receiver)
 }
 
-fn main() -> Result<(), Error> {
+#[tokio::main]
+async fn main() -> Result<(), Error> {
     let ctrl_c_events = ctrl_channel()?;
-    let ticks = tick(Duration::from_secs(1));
+    let ticks = tick(Duration::from_millis(500));
     let tourbox_default_port_name = "/dev/ttyACM0";
     let mut args = env::args();
     let first_argument = 1;
-    let tty_path = args.nth(first_argument)
+    let tty_path = args
+        .nth(first_argument)
         .unwrap_or_else(|| String::from(tourbox_default_port_name));
-    let mut port = serialport::new(tty_path, 9600)
-        .timeout(Duration::from_millis(10))
-        .open().expect("Failed to open port");
+
+    let tokio_port = tokio_serial::new(tty_path, 9600);
 
     let mut device = uinput::default()
         .expect("Cannot open default uinput device")
@@ -36,25 +37,35 @@ fn main() -> Result<(), Error> {
         .create()
         .expect("Error creating uinput device for tour box neo");
 
+    let mut stream =
+        tokio_serial::SerialStream::open(&tokio_port).expect("Cannot open serial port");
+
+    stream
+        .set_timeout(Duration::from_millis(100))
+        .expect("Error setting timeout");
+
+    stream
+        .set_exclusive(true)
+        .expect("Cannot set device as exclusive");
+
     loop {
         select! {
             recv(ticks) -> _ => {
-                println!("working!");
-                let mut serial_buf: Vec<u8> = vec![0; 2];
-                let have_data = port.read(serial_buf.as_mut_slice());
-                if have_data.is_ok() {
-                    // kill my own program because I am mad
-                    println!("{:?}", serial_buf);
-                    device.press(&keyboard::Key::LeftControl).unwrap();
-                    device.click(&keyboard::Key::C).unwrap();
-                    device.release(&keyboard::Key::LeftControl).unwrap();
-                    device.synchronize().unwrap();
-                    continue;
+                let mut vec = vec![0; 32];
+                match stream.try_read(&mut vec) {
+                    Ok(size) => {
+                        // Kill my own program because I am crazy
+                        println!("Read {} bytes: {:?}", size, vec);
+                        device.press(&keyboard::Key::LeftControl).expect("Cannot send key");
+                        device.click(&keyboard::Key::C).expect("Cannot send key");
+                        device.synchronize().unwrap();
+                    },
+                    Err(e) => {
+                        println!("Error reading serial port: {}", e);
+                    },
                 }
-                println!("No data!");
             }
             recv(ctrl_c_events) -> _ => {
-
                 println!();
                 println!("Goodbye!");
                 break;
@@ -62,5 +73,5 @@ fn main() -> Result<(), Error> {
         }
     }
 
-    Ok(())
+    return Ok(());
 }
